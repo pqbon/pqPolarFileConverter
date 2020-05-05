@@ -13,6 +13,8 @@
 
 #include "PolarFile.h"
 
+constexpr float version { 0.5f };
+
 using namespace std::literals::string_literals;
 using namespace std::literals::string_view_literals;
 
@@ -27,7 +29,8 @@ int main(int argc, char* const argv[]) {
         display_help(argv[0]);
         std::exit(666);
     }
-
+    std::cout << "pqPolarConverter" << std::endl;
+    std::cout << "Version: " << version << std::endl;
     ArgStrings const args { process_arguments(argc, argv) };
 
     std::string const input_filename { args.at(1) };
@@ -38,8 +41,6 @@ int main(int argc, char* const argv[]) {
     Sailing::PolarFiles::PolarFile new_polar;
     new_polar.import_polar(input_filename);
     new_polar.export_polar(output_filename);
-
-    //process_input_polar(input_filename);
 }
 
 void display_help(std::string const& name_) {
