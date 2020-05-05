@@ -21,6 +21,9 @@
   <ItemGroup>
     <ClCompile Include="..\PolarMain.cpp" />
   </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\PolarFile.h" />
+  </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>16.0</VCProjectVersion>
     <ProjectGuid>{6D889E1B-0214-4CF6-8367-2782E7D0ACBD}</ProjectGuid>
