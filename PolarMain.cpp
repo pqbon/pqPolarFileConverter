@@ -1,7 +1,11 @@
+#include "PolarFile.h"
+
 #include <iostream>
 #include <fstream>
 #include <cstdlib>
 #include <cstdint>
+#include <cctype>
+#include <charconv>
 #include <cassert>
 #include <string>
 #include <string_view>
@@ -9,9 +13,7 @@
 #include <deque>
 #include <map>
 #include <utility>
-#include <optional>
-
-#include "PolarFile.h"
+#include <algorithm>
 
 constexpr float version { 0.5f };
 
@@ -25,7 +27,7 @@ ArgStrings process_arguments(int argc_, char* const argv_[]);
 
 int main(int argc, char* const argv[]) {
 
-    if (argc < 3) {
+    if (argc < 4) {
         display_help(argv[0]);
         std::exit(666);
     }
@@ -33,19 +35,26 @@ int main(int argc, char* const argv[]) {
     std::cout << "Version: " << version << std::endl;
     ArgStrings const args { process_arguments(argc, argv) };
 
-    std::string const input_filename { args.at(1) };
-    std::string const output_filename { args.at(2) };
+    std::string const command { args.at(1) };
+    std::string const input_filename { args.at(2) };
+    std::string const output_filename { args.at(3) };
 
     std::cout << "Inputfile => " << input_filename << " Outpuffile => " << output_filename << std::endl;
 
     Sailing::PolarFiles::PolarFile new_polar;
-    new_polar.import_polar(input_filename);
+    if (command == "convert") {
+        new_polar.import_polar(input_filename);
+    } else if (command == "clean") {
+        new_polar.read_polar(input_filename);
+    }
+    new_polar.normalise_polar();
     new_polar.export_polar(output_filename);
 }
 
 void display_help(std::string const& name_) {
     std::cout << name_ << " => Polar File Conversion for Expedition"s << std::endl << std::endl;
-    std::cout << "Usage: "s << name_ << " <input file> <outputfile>"s << std::endl;
+    std::cout << "Usage: "s << name_ << " <command> <input file> <outputfile>"s << std::endl;
+    std::cout << "Commands: clean or convert" << std::endl;
     std::cout << std::endl;
 }
 
@@ -82,8 +91,8 @@ bool Sailing::PolarFiles::PolarFile::my_begins_with(std::string_view const str, 
     return match;
 }
 
-std::vector<Sailing::PolarFiles::str_ptr> Sailing::PolarFiles::PolarFile::break_strings(Sailing::PolarFiles::str_ptr input, char const cut_char) {
-    std::vector<std::shared_ptr<std::string>> results {};
+Sailing::PolarFiles::StrVec Sailing::PolarFiles::PolarFile::break_strings(Sailing::PolarFiles::str_ptr input, char const cut_char) {
+    StrVec results {};
     size_t str_start { 0u };
     size_t const input_sz { input->size() };
     while (str_start < input_sz) {
@@ -99,8 +108,8 @@ std::vector<Sailing::PolarFiles::str_ptr> Sailing::PolarFiles::PolarFile::break_
     return results;
 }
 
-std::vector<float> Sailing::PolarFiles::PolarFile::break_strings_float(Sailing::PolarFiles::str_ptr input, char const cut_char) {
-    std::vector<float> results {};
+Sailing::PolarFiles::FloatVec Sailing::PolarFiles::PolarFile::break_strings_float(Sailing::PolarFiles::str_ptr input, char const cut_char) {
+    FloatVec results {};
     size_t str_start { 0u };
     size_t const input_sz { input->size() };
     while (str_start < input_sz) {
@@ -161,8 +170,9 @@ void Sailing::PolarFiles::PolarFile::import_polar(std::string const& input_polar
     std::cout << "Cut Char: '" << cut_char << "' 0x" << std::hex << static_cast<int>(cut_char) << std::endl;
 
     //put int object
-    tws_list = std::make_shared<std::vector<float>>(break_strings_float(tline, cut_char));
+    *tws_list = break_strings_float(tline, cut_char);
 
+    std::shared_ptr<OldPolar> old_polar_data { std::make_shared<OldPolar>() };
 
     for (std::shared_ptr<std::string> line { std::make_shared<std::string>() }; std::getline(*polar_file, *line);) {
         std::cout << *line << std::endl;
@@ -170,24 +180,24 @@ void Sailing::PolarFiles::PolarFile::import_polar(std::string const& input_polar
         std::shared_ptr<std::vector<float>> row { std::make_shared<std::vector<float>>(break_strings_float(line, cut_char)) };
 
         float const twa { row->at(0) };
-        twa_list.push_back(twa);
+        old_polar_data->twa_list->push_back(twa);
 
-        old_polar_map[twa] = row;
+        old_polar_data->old_polar_map->emplace(twa, row);
     }
 
     //Put in onject...
     polar = std::make_shared<std::vector<TwsCurve_ptr>>();
     size_t const tws_list_sz { tws_list->size() };
-    size_t const twa_list_sz { twa_list.size() };
+    size_t const twa_list_sz { old_polar_data->twa_list->size() };
     for (size_t idx { 0u }; idx < tws_list_sz; ++idx) {
         float tws { tws_list->at(idx) };
         std::vector<float> new_row {};
         for (size_t jdx { 0u }; jdx < twa_list_sz; ++jdx) {
-            float key { twa_list.at(jdx) };
-            float val { old_polar_map[key]->at(idx + 1) };
+            float key { old_polar_data->twa_list->at(jdx) };
+            float val { old_polar_data->old_polar_map->at(key)->at(idx + 1) };
             new_row.push_back(val);
         }
-        TwsCurve_ptr polar_curves { build_pairs(twa_list, new_row) };
+        TwsCurve_ptr polar_curves { build_pairs(*old_polar_data->twa_list, new_row) };
 
         polar->push_back(polar_curves);
     }
@@ -196,9 +206,9 @@ void Sailing::PolarFiles::PolarFile::import_polar(std::string const& input_polar
 }
 
 void Sailing::PolarFiles::PolarFile::export_polar(std::string const& output_polar_fn) {
-    std::ofstream output_polar { output_polar_fn };
+    std::shared_ptr<std::ofstream> output_polar { std::make_shared<std::ofstream>(output_polar_fn) };
 
-    output_polar << table_header << std::endl;
+    *output_polar << table_header << std::endl;
     size_t const tws_list_sz { tws_list->size() };
 
     for (size_t idx { 0u }; idx < tws_list_sz; ++idx) {
@@ -206,12 +216,67 @@ void Sailing::PolarFiles::PolarFile::export_polar(std::string const& output_pola
         TwsCurve_ptr polar_curve { polar->at(idx) };
         size_t const polar_curve_sz { polar_curve->size() };
         std::cout << tws;
-        output_polar << tws;
+        *output_polar << tws;
         for (size_t jdx { 0u }; jdx < polar_curve_sz; ++jdx) {
             std::cout << "\t" << polar_curve->at(jdx)->first << "\t" << polar_curve->at(jdx)->second;
-            output_polar << "\t" << polar_curve->at(jdx)->first << "\t" << polar_curve->at(jdx)->second;
+            *output_polar << "\t" << polar_curve->at(jdx)->first << "\t" << polar_curve->at(jdx)->second;
         }
         std::cout << std::endl;
-        output_polar << std::endl;
+        *output_polar << std::endl;
     }
+}
+
+void Sailing::PolarFiles::PolarFile::read_polar(std::string const& input_polar_fn) {
+    std::shared_ptr<std::ifstream> polar_file { std::make_shared<std::ifstream>(input_polar_fn) };
+
+    if (polar_file->is_open() == false) {
+        std::cerr << "ERROR: Unable to open file  " << input_polar_fn << std::endl;
+        return;
+    }
+
+    char cut_char {};
+
+    for (std::shared_ptr<std::string> line { std::make_shared<std::string>() }; std::getline(*polar_file, *line);) {
+        std::cout << *line << std::endl;
+
+        if (line->at(0) == '!') {
+            comments->push_back(line);
+            continue;
+        }
+        // Find fisrt non-number char -- delimiter.
+        size_t eon {};
+        for (size_t idx {0}; cut_char == '\0' && idx < line->size(); ++idx) {
+            if (std::isdigit(line->at(idx)) == 0) { //Any charecter not a digit must be the cut char...
+                cut_char = line->at(idx);
+                eon = idx;
+                break;
+            }
+        }
+
+        FloatVec broken_line { break_strings_float(line, cut_char) };
+        // Broken line must have odd number for tws_ and pairs of values
+        size_t const broken_line_sz { broken_line.size() };
+        assert(broken_line.size() % 2 == 1);
+
+        float const tws_ { broken_line.at(0) };
+        TwsCurve_ptr tws_curve { std::make_shared<TwsCurve>() };
+        for (size_t idx { 1 }; idx < broken_line.size(); idx += 2) {
+            FloatPair_ptr fp { std::make_shared<FloatPair>(broken_line.at(idx), broken_line.at(idx + 1)) };
+            tws_curve->push_back(fp);
+        }
+
+        tws_list->push_back(tws_);
+        polar->push_back(tws_curve);
+    }
+}
+
+void Sailing::PolarFiles::PolarFile::normalise_polar() {
+    std::for_each(std::begin(*polar), std::end(*polar), [](auto& tws_curve) {
+        std::sort(std::begin(*tws_curve), std::end(*tws_curve), [](auto& p0, auto& p1) {
+            return p0->first < p1->first;
+        });
+    });
+
+    //Clean duplicates...
+
 }
