@@ -2,6 +2,7 @@
 
 #include <iostream>
 #include <fstream>
+#include <sstream>
 #include <cstdlib>
 #include <cstdint>
 #include <cctype>
@@ -149,6 +150,8 @@ Sailing::PolarFiles::TwsCurve_ptr Sailing::PolarFiles::PolarFile::build_pairs(st
 void Sailing::PolarFiles::PolarFile::import_polar(std::string const& input_polar_fn) {
     std::shared_ptr<std::ifstream> polar_file { std::make_shared<std::ifstream>(input_polar_fn) };
 
+    std::cout << "Importing non-Expedition Polar: " << input_polar_fn << std::endl;
+
     if (polar_file->is_open() == false) {
         std::cerr << "ERROR: Unable to open file  " << input_polar_fn << std::endl;
         return;
@@ -209,6 +212,9 @@ void Sailing::PolarFiles::PolarFile::export_polar(std::string const& output_pola
     std::shared_ptr<std::ofstream> output_polar { std::make_shared<std::ofstream>(output_polar_fn) };
 
     *output_polar << table_header << std::endl;
+    for (auto comment : *comments) {
+        *output_polar << *comment << std::endl;
+    }
     size_t const tws_list_sz { tws_list->size() };
 
     for (size_t idx { 0u }; idx < tws_list_sz; ++idx) {
@@ -229,6 +235,8 @@ void Sailing::PolarFiles::PolarFile::export_polar(std::string const& output_pola
 void Sailing::PolarFiles::PolarFile::read_polar(std::string const& input_polar_fn) {
     std::shared_ptr<std::ifstream> polar_file { std::make_shared<std::ifstream>(input_polar_fn) };
 
+    std::cout << "Reading Expedition Polar: " << input_polar_fn << std::endl;
+
     if (polar_file->is_open() == false) {
         std::cerr << "ERROR: Unable to open file  " << input_polar_fn << std::endl;
         return;
@@ -240,7 +248,9 @@ void Sailing::PolarFiles::PolarFile::read_polar(std::string const& input_polar_f
         std::cout << *line << std::endl;
 
         if (line->at(0) == '!') {
-            comments->push_back(line);
+            if (*line != table_header) {
+                comments->push_back(line);
+            }
             continue;
         }
         // Find fisrt non-number char -- delimiter.
@@ -271,6 +281,8 @@ void Sailing::PolarFiles::PolarFile::read_polar(std::string const& input_polar_f
 }
 
 void Sailing::PolarFiles::PolarFile::normalise_polar() {
+    std::cout << "Cleaning polar file." << std::endl;
+
     std::for_each(std::begin(*polar), std::end(*polar), [](auto& tws_curve) {
         std::sort(std::begin(*tws_curve), std::end(*tws_curve), [](auto& p0, auto& p1) {
             return p0->first < p1->first;
@@ -278,5 +290,48 @@ void Sailing::PolarFiles::PolarFile::normalise_polar() {
     });
 
     //Clean duplicates...
+    for (auto tws_curve : *polar) {
+        size_t tws_curve_sz { tws_curve->size() };
+        for (auto tws_curve_iter { std::begin(*tws_curve) }; tws_curve_iter + 1 != std::end(*tws_curve); ++tws_curve_iter) {
+            FloatPair_ptr const &p0 { *tws_curve_iter };
+            FloatPair_ptr const &p1 { *(tws_curve_iter + 1) };
+            if (p0->first == p1->first) {
+                std::cout << "Found conflicting entries in in TWS Curve..." << std::endl;
+                if (p0->second == p1->second) {
+                    std::cout << "Entry is identical - dropping duplicate." << std::endl;
+                    tws_curve->erase(tws_curve_iter + 1);
+                } else { //User intervention required...
+                    //A/B choice of which entry to drop
+                    std::cout << "A: " << polar_entry_txt(p0) << std::endl;
+                    std::cout << "B: " << polar_entry_txt(p1) << std::endl;
+                    bool valid { false };
+                    do {
+                        std::cout << "Please select entry to keep: ";
+                        char input {};
+                        std::cin >> input;
+                        switch (std::tolower(input)) {
+                        case 'a':
+                            tws_curve_iter = tws_curve->erase(tws_curve_iter);
+                            tws_curve_iter -= 1;
+                            valid = true;
+                            break;
+                        case 'b':
+                            tws_curve->erase(tws_curve_iter + 1);
+                            valid = true;
+                            break;
+                        default:
+                            valid = false;
+                        }
+                    } while (!valid);
+                }
+            }
+        }
+    }
+}
 
+std::string Sailing::PolarFiles::PolarFile::polar_entry_txt(FloatPair_ptr fp) {
+    std::stringstream ret;
+    ret << "TWA: " << fp->first << " Parameter: " << fp->second;
+
+    return ret.str();
 }

@@ -19,6 +19,7 @@ namespace Sailing::PolarFiles {
     using FloatVec = std::vector<float>;
     using TwsCurve = std::vector<FloatPair_ptr>;
     using TwsCurve_ptr = std::shared_ptr<TwsCurve>;
+    using TwsCurveVec = std::vector<TwsCurve_ptr>;
 
     using OldPolarMap = std::map<float, std::shared_ptr<FloatVec>>;
 
@@ -51,12 +52,13 @@ namespace Sailing::PolarFiles {
 
         std::shared_ptr<FloatVec> tws_list {nullptr};
 
-        std::shared_ptr<std::vector<TwsCurve_ptr>> polar {nullptr};
+        std::shared_ptr<TwsCurveVec> polar {nullptr};
 
         StrVec break_strings(str_ptr input, char const cut_char);
         FloatVec break_strings_float(str_ptr input, char const cut_char);
         TwsCurve_ptr build_pairs(std::vector<float> const& tws, std::vector<float> const& bsp);
         bool my_begins_with(std::string_view const str, std::string_view const prefix);
+        std::string polar_entry_txt(FloatPair_ptr fp);
     };
 
 
