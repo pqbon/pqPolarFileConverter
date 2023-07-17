@@ -5,6 +5,7 @@
 #include <sstream>
 #include <cstdlib>
 #include <cstdint>
+#include <cmath>
 #include <cctype>
 #include <charconv>
 #include <cassert>
@@ -122,6 +123,8 @@ Sailing::PolarFiles::FloatVec Sailing::PolarFiles::PolarFile::break_strings_floa
         if (std::isdigit(tstr[0]) != 0) {
             float val { static_cast<float>(atof(tstr.c_str())) };
             results.push_back(val);
+        }else{
+            results.push_back(NAN);
         }
         str_start = str_end + 1;
     }
@@ -140,8 +143,10 @@ Sailing::PolarFiles::TwsCurve_ptr Sailing::PolarFiles::PolarFile::build_pairs(st
         float twsT { tws.at(idx) };
         float bspT { bsp.at(idx) };
 
-        FloatPair_ptr tws_bsp_pair { std::make_shared<FloatPair>(std::make_pair(twsT, bspT)) };
-        result->push_back(tws_bsp_pair);
+        if (!isnan(bspT)){
+            FloatPair_ptr tws_bsp_pair { std::make_shared<FloatPair>(std::make_pair(twsT, bspT)) };
+            result->push_back(tws_bsp_pair);
+        }
     }
 
     return result;
@@ -164,6 +169,7 @@ void Sailing::PolarFiles::PolarFile::import_polar(std::string const& input_polar
     bool const match1 { my_begins_with(*tline, table_deco1) };
 
     if ((match0 == false) && (match1 == false)) {
+        std::cout << "Error -- table does not begin with correct decoration... TWA/TWS" << std::endl;
         return;
     }
 
@@ -174,7 +180,10 @@ void Sailing::PolarFiles::PolarFile::import_polar(std::string const& input_polar
 
     //put int object
     *tws_list = break_strings_float(tline, cut_char);
-
+    if(isnan(tws_list->at(0))){
+        tws_list->erase(tws_list->begin());
+    }
+    
     std::shared_ptr<OldPolar> old_polar_data { std::make_shared<OldPolar>() };
 
     for (std::shared_ptr<std::string> line { std::make_shared<std::string>() }; std::getline(*polar_file, *line);) {
